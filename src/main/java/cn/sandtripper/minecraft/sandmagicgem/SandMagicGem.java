@@ -1,7 +1,6 @@
 package cn.sandtripper.minecraft.sandmagicgem;
 
 import cn.sandtripper.minecraft.sandmagicgem.GemManager.GemManager;
-import org.bstats.bukkit.Metrics;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public final class SandMagicGem extends JavaPlugin {

@@ -48,7 +48,6 @@ repositories {
 dependencies {
     compileOnly 'org.spigotmc:spigot-api:1.20.1-R0.1-SNAPSHOT'
     compileOnly 'com.mojang:authlib:4.0.43'
-    implementation  'org.bstats:bstats-bukkit:3.0.2'
 }
 
 tasks.withType(JavaCompile).configureEach {

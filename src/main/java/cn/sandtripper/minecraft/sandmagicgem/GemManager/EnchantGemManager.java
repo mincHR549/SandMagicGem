@@ -11,7 +11,9 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.SkullMeta;
 
+
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.*;
 
 import static cn.sandtripper.minecraft.sandmagicgem.GemManager.GemManager.GEM_LEVEL_DISPLAY;
@@ -33,6 +35,23 @@ public class EnchantGemManager {
     private HashMap<String, List<ItemStack>> enchantGemItemStacks;
     private HashMap<String, String> enchantGemDisplay2id;
     private FileConfiguration config;
+
+    // —— 类字段中加入这些静态缓存变量 ——
+    private static boolean supportsResolvableProfile = false;
+    private static Method resolvableOfMethod = null;
+
+    static {
+        try {
+            Class<?> resolvableClass = Class.forName("net.minecraft.world.item.component.ResolvableProfile");
+            Class<?> gameProfileClass = Class.forName("com.mojang.authlib.GameProfile");
+            resolvableOfMethod = resolvableClass.getDeclaredMethod("of", gameProfileClass);
+            resolvableOfMethod.setAccessible(true);
+            supportsResolvableProfile = true;
+        } catch (Throwable ignored) {
+            supportsResolvableProfile = false;
+        }
+    }
+
 
     public EnchantGemManager(SandMagicGem plugin) {
         this.plugin = plugin;
@@ -203,40 +222,88 @@ public class EnchantGemManager {
         return content.replace("&", "§");
     }
 
+//    private ItemStack makeItemStack(EnchantGemData enchantGemData) {
+//        ItemStack skullItem = new ItemStack(Material.PLAYER_HEAD);
+//        SkullMeta skullMeta = (SkullMeta) skullItem.getItemMeta();
+//
+//        // 检查是否支持新版本的 setOwningPlayer 方法
+//        boolean isNewVersion = false;
+//        try {
+//            skullMeta.getClass().getMethod("setOwningPlayer", org.bukkit.entity.Player.class);
+//            isNewVersion = true;
+//        } catch (NoSuchMethodException e) {
+//            isNewVersion = false;
+//        }
+//
+//        if (isNewVersion) {
+//            // 新版本使用 setOwningPlayer
+//            skullMeta.setOwningPlayer(plugin.getServer().getOfflinePlayer(UUID.randomUUID()));
+//        } else {
+//            // 旧版本使用 GameProfile
+//            GameProfile profile = new GameProfile(UUID.randomUUID(), "");
+//            profile.getProperties().put("textures", new Property("textures", enchantGemData.headUrl));
+//
+//            try {
+//                Field profileField = skullMeta.getClass().getDeclaredField("profile");
+//                profileField.setAccessible(true);
+//                profileField.set(skullMeta, profile);
+//            } catch (NoSuchFieldException | IllegalAccessException e) {
+//                e.printStackTrace();
+//            }
+//        }
+//
+//        skullMeta.setDisplayName(enchantGemData.name);
+//        skullMeta.setLore(enchantGemData.lores);
+//        skullItem.setItemMeta(skullMeta);
+//
+//        return skullItem;
+//    }
+
     private ItemStack makeItemStack(EnchantGemData enchantGemData) {
         ItemStack skullItem = new ItemStack(Material.PLAYER_HEAD);
         SkullMeta skullMeta = (SkullMeta) skullItem.getItemMeta();
 
-        // 检查是否支持新版本的 setOwningPlayer 方法
-        boolean isNewVersion = false;
         try {
-            skullMeta.getClass().getMethod("setOwningPlayer", org.bukkit.entity.Player.class);
-            isNewVersion = true;
-        } catch (NoSuchMethodException e) {
-            isNewVersion = false;
-        }
+            Field profileField = skullMeta.getClass().getDeclaredField("profile");
+            profileField.setAccessible(true);
 
-        if (isNewVersion) {
-            // 新版本使用 setOwningPlayer
-            skullMeta.setOwningPlayer(plugin.getServer().getOfflinePlayer(UUID.randomUUID()));
-        } else {
-            // 旧版本使用 GameProfile
-            GameProfile profile = new GameProfile(UUID.randomUUID(), "");
-            profile.getProperties().put("textures", new Property("textures", enchantGemData.headUrl));
+            Class<?> profileFieldType = profileField.getType();
+            Class<?> gameProfileClass = Class.forName("com.mojang.authlib.GameProfile");
 
-            try {
-                Field profileField = skullMeta.getClass().getDeclaredField("profile");
-                profileField.setAccessible(true);
-                profileField.set(skullMeta, profile);
-            } catch (NoSuchFieldException | IllegalAccessException e) {
-                e.printStackTrace();
+            // 构造 GameProfile 并添加 textures 属性
+            UUID uuid = UUID.randomUUID();
+            Object gameProfile = gameProfileClass.getConstructor(UUID.class, String.class)
+                    .newInstance(uuid, "");
+
+            Object properties = gameProfileClass.getMethod("getProperties").invoke(gameProfile);
+            Class<?> propertyMapClass = properties.getClass();
+            Class<?> propertyClass = Class.forName("com.mojang.authlib.properties.Property");
+            Object textureProperty = propertyClass.getConstructor(String.class, String.class)
+                    .newInstance("textures", enchantGemData.headUrl);
+
+            propertyMapClass.getMethod("put", Object.class, Object.class)
+                    .invoke(properties, "textures", textureProperty);
+
+            // —— 判断当前服务器是否支持 ResolvableProfile ——
+            if (profileFieldType.getName().contains("ResolvableProfile")) {
+                if (supportsResolvableProfile && resolvableOfMethod != null) {
+                    Object resolved = resolvableOfMethod.invoke(null, gameProfile);
+                    profileField.set(skullMeta, resolved);
+                } else {
+                    // 跳过注入，避免类型不匹配崩服
+                }
+            } else {
+                // 老版本直接注入 GameProfile
+                profileField.set(skullMeta, gameProfile);
             }
+
+        } catch (Throwable t) {
+            plugin.getLogger().warning("设置 skull profile 时出错: " + t.getMessage());
         }
 
         skullMeta.setDisplayName(enchantGemData.name);
         skullMeta.setLore(enchantGemData.lores);
         skullItem.setItemMeta(skullMeta);
-
         return skullItem;
     }
 
